@@ -4,7 +4,7 @@ FROM node:20 AS node
 WORKDIR /var/www/html
 
 # Copy only the frontend files
-COPY package*.json vite.config.js ./
+COPY package*.json vite.config.js postcss.config.js tailwind.config.js ./
 COPY resources resources
 
 # Install and build Vite assets
@@ -57,3 +57,6 @@ RUN chmod -R 775 storage bootstrap/cache
 EXPOSE 10000
 
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=10000"]
+
+
+
