@@ -1,62 +1,55 @@
-FROM node:20 AS node
+# Stage 1: Build frontend assets with Node.js
+FROM node:18 AS node-builder
+WORKDIR /app
 
-# Set working directory
-WORKDIR /var/www/html
-
-# Copy only the frontend files
-COPY package*.json vite.config.js postcss.config.js tailwind.config.js ./
-COPY resources resources
-
-# Install and build Vite assets
-RUN npm install && npm run build
-
-# ---------------------------
-
-FROM php:8.2-cli
+# Copy package files first for better caching
+COPY package*.json ./
+COPY yarn.lock* ./
 
 # Install dependencies
+RUN npm ci --only=production
+
+# Copy all source files needed for build
+COPY . .
+
+# Build frontend assets (this should compile Tailwind)
+RUN npm run build
+
+# Stage 2: PHP Laravel backend
+FROM php:8.2-fpm
+WORKDIR /var/www
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    unzip \
-    libzip-dev \
-    zip \
-    sqlite3 \
-    libsqlite3-dev \
-    git \
-    curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libcurl4-openssl-dev \
-    libssl-dev
+    zip unzip curl git libxml2-dev libzip-dev libpng-dev libjpeg-dev libonig-dev \
+    sqlite3 libsqlite3-dev nginx \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo pdo_sqlite mbstring zip exif pcntl bcmath
+RUN docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd zip
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set working directory
-WORKDIR /var/www/html
+# Copy application files
+COPY --chown=www-data:www-data . /var/www
 
-# Copy backend files
-COPY . .
+# Copy built frontend assets from node-builder stage
+COPY --from=node-builder --chown=www-data:www-data /app/public /var/www/public
 
-# Copy built assets from Node build stage
-COPY --from=node /var/www/html/public/build public/build
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader
 
-# Install Laravel dependencies
-RUN composer install --optimize-autoloader --no-dev
+# Setup environment
+COPY .env.example .env
+RUN php artisan key:generate
 
-# Generate empty sqlite file if not exists
-RUN mkdir -p database && touch database/database.sqlite
+# Set proper permissions
+RUN chown -R www-data:www-data /var/www \
+    && chmod -R 755 /var/www/storage \
+    && chmod -R 755 /var/www/bootstrap/cache
 
-# Set permissions
-RUN chmod -R 775 storage bootstrap/cache
+EXPOSE 8000
 
-# Expose port
-EXPOSE 10000
-
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=10000"]
-
-
-
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
