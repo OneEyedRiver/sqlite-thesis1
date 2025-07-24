@@ -3,7 +3,7 @@ services:
     name: laravel-app
     env: docker
     plan: free
-    repo: https://github.com/your-username/your-repo-name
+    repo: https://github.com/OneEyedRiver/sqlite-thesis1
     branch: main
     dockerfilePath: Dockerfile
     envVars:
