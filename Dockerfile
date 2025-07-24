@@ -1,59 +1,34 @@
-FROM node:20 AS node
+### Step 1: Node.js for frontend (Vite)
+FROM node:18 AS node-builder
 
-# Set working directory
-WORKDIR /var/www/html
-
-# Copy only the frontend files
-COPY package*.json vite.config.js ./
-COPY resources resources
-
-# Install and build Vite assets
-RUN npm install && npm run build
-
-# ---------------------------
-
-FROM php:8.2-cli
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    unzip \
-    libzip-dev \
-    zip \
-    sqlite3 \
-    libsqlite3-dev \
-    git \
-    curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libcurl4-openssl-dev \
-    libssl-dev
-
-# Install PHP extensions
-RUN docker-php-ext-install pdo pdo_sqlite mbstring zip exif pcntl bcmath
-
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# Set working directory
-WORKDIR /var/www/html
-
-# Copy backend files
+WORKDIR /app
 COPY . .
 
-# Copy built assets from Node build stage
-COPY --from=node /var/www/html/public/build public/build
+RUN npm install && npm run build
 
-# Install Laravel dependencies
-RUN composer install --optimize-autoloader --no-dev
 
-# Generate empty sqlite file if not exists
-RUN mkdir -p database && touch database/database.sqlite
+### Step 2: PHP for Laravel backend
+FROM php:8.2-fpm
 
-# Set permissions
-RUN chmod -R 775 storage bootstrap/cache
+WORKDIR /var/www
 
-# Expose port
-EXPOSE 10000
+RUN apt-get update && apt-get install -y \
+    zip unzip curl git libxml2-dev libzip-dev libpng-dev libjpeg-dev libonig-dev \
+    sqlite3 libsqlite3-dev
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=10000"]
+RUN docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd zip
+
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+COPY . /var/www
+COPY --chown=www-data:www-data . /var/www
+
+# Copy only built frontend assets (from Vite)
+COPY --from=node-builder /app/public/build /var/www/public/build
+
+RUN composer install
+COPY .env.example .env
+RUN php artisan key:generate
+
+EXPOSE 8000
+CMD php artisan serve --host=0.0.0.0 --port=8000
